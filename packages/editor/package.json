@@ -1,0 +1,19 @@
+{
+  "name": "@visualizer/editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "dependencies": {
+    "@visualizer/shared": "*",
+    "butterchurn": "^2.6.7",
+    "butterchurn-presets": "^2.4.7"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}

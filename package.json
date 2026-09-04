@@ -1,0 +1,19 @@
+{
+  "name": "music-visualizer-youtube",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @visualizer/web",
+    "build": "npm run build --workspace @visualizer/web",
+    "desktop:dev": "npm run tauri:dev --workspace @visualizer/desktop",
+    "desktop:build": "npm run tauri:build --workspace @visualizer/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
