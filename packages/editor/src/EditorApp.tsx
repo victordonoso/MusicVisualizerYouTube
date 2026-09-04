@@ -13,6 +13,12 @@ type SavedTemplate = {
   output: AspectRatio;
 };
 
+type PresetMarker = {
+  id: string;
+  time: number;
+  presetName: string;
+};
+
 const presetEntries = Object.entries(butterchurnPresets.getPresets());
 const defaultPreset = presetEntries.find(([name]) => name.includes("Geiss")) ?? presetEntries[0];
 
@@ -24,6 +30,31 @@ function getSavedTemplates(): SavedTemplate[] {
   }
 }
 
+function formatTime(seconds: number) {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  return `${minutes}:${Math.floor(safeSeconds % 60).toString().padStart(2, "0")}`;
+}
+
+async function readWaveform(file: File) {
+  const context = new AudioContext();
+  try {
+    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    const channel = decoded.getChannelData(0);
+    const samples = 180;
+    const blockSize = Math.max(1, Math.floor(channel.length / samples));
+    return Array.from({ length: samples }, (_, index) => {
+      let peak = 0;
+      const start = index * blockSize;
+      const end = Math.min(start + blockSize, channel.length);
+      for (let sample = start; sample < end; sample += 1) peak = Math.max(peak, Math.abs(channel[sample]));
+      return peak;
+    });
+  } finally {
+    await context.close();
+  }
+}
+
 export function EditorApp() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -31,6 +62,7 @@ export function EditorApp() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationRef = useRef<number | null>(null);
   const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const activeMarkerRef = useRef<string | null>(null);
   const [audioName, setAudioName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [presetName, setPresetName] = useState(defaultPreset?.[0] ?? "");
@@ -41,11 +73,17 @@ export function EditorApp() {
   const [license, setLicense] = useState<LicenseMode>("free");
   const [templates, setTemplates] = useState<SavedTemplate[]>(getSavedTemplates);
   const [notice, setNotice] = useState("Import an audio file to begin.");
+  const [waveform, setWaveform] = useState<number[]>([]);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [presetMarkers, setPresetMarkers] = useState<PresetMarker[]>([]);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   const selectedPreset = useMemo(
     () => presetEntries.find(([name]) => name === presetName) ?? defaultPreset,
     [presetName],
   );
+  const selectedMarker = presetMarkers.find((marker) => marker.id === selectedMarkerId) ?? null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -72,6 +110,19 @@ export function EditorApp() {
     if (selectedPreset) visualizerRef.current?.loadPreset(selectedPreset[1], 1.2);
   }, [selectedPreset]);
 
+  function loadPreset(name: string, blendTime = 0.8) {
+    const preset = presetEntries.find(([presetName]) => presetName === name);
+    if (preset) visualizerRef.current?.loadPreset(preset[1], blendTime);
+  }
+
+  function syncPresetAtTime(time: number) {
+    const activeMarker = [...presetMarkers].reverse().find((marker) => marker.time <= time);
+    const markerId = activeMarker?.id ?? null;
+    if (markerId === activeMarkerRef.current) return;
+    activeMarkerRef.current = markerId;
+    loadPreset(activeMarker?.presetName ?? presetName);
+  }
+
   useEffect(() => () => {
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
 
@@ -92,7 +143,12 @@ export function EditorApp() {
     if (audio.src) URL.revokeObjectURL(audio.src);
     audio.src = URL.createObjectURL(file);
     setAudioName(file.name);
-    setNotice("Audio loaded. Press play to drive the visualizer.");
+    setCurrentTime(0);
+    setDuration(0);
+    setPresetMarkers([]);
+    setSelectedMarkerId(null);
+    activeMarkerRef.current = null;
+    setNotice("Audio loaded. Analyzing waveform...");
 
     const context = audioContextRef.current;
     if (context && !mediaSourceRef.current) {
@@ -101,6 +157,51 @@ export function EditorApp() {
       visualizerRef.current?.connectAudio(source);
       mediaSourceRef.current = source;
     }
+
+    try {
+      setWaveform(await readWaveform(file));
+      setNotice("Audio loaded. Press play to drive the visualizer.");
+    } catch {
+      setWaveform([]);
+      setNotice("Audio loaded. Waveform analysis was unavailable for this file.");
+    }
+  }
+
+  function seek(time: number) {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(time)) return;
+    audio.currentTime = time;
+    setCurrentTime(time);
+    syncPresetAtTime(time);
+  }
+
+  function addPresetMarker() {
+    if (!audioRef.current?.src) {
+      setNotice("Import audio before adding a preset marker.");
+      return;
+    }
+    const marker = { id: crypto.randomUUID(), time: currentTime, presetName };
+    const next = [...presetMarkers, marker].sort((a, b) => a.time - b.time);
+    setPresetMarkers(next);
+    setSelectedMarkerId(marker.id);
+    activeMarkerRef.current = marker.id;
+    setNotice(`Preset marker added at ${formatTime(marker.time)}.`);
+  }
+
+  function updateSelectedMarker(update: Partial<Pick<PresetMarker, "time" | "presetName">>) {
+    if (!selectedMarker) return;
+    const next = presetMarkers.map((marker) => marker.id === selectedMarker.id ? { ...marker, ...update } : marker).sort((a, b) => a.time - b.time);
+    setPresetMarkers(next);
+    activeMarkerRef.current = null;
+    syncPresetAtTime(currentTime);
+  }
+
+  function removeSelectedMarker() {
+    if (!selectedMarker) return;
+    setPresetMarkers(presetMarkers.filter((marker) => marker.id !== selectedMarker.id));
+    setSelectedMarkerId(null);
+    activeMarkerRef.current = null;
+    syncPresetAtTime(currentTime);
   }
 
   async function togglePlayback() {
@@ -188,7 +289,16 @@ export function EditorApp() {
             <button className="play-button" type="button" onClick={() => void togglePlayback()}>{isPlaying ? "Pause" : "Play"}</button>
             <span>{notice}</span>
           </div>
-          <audio ref={audioRef} onEnded={() => setIsPlaying(false)} />
+          <audio
+            ref={audioRef}
+            onEnded={() => setIsPlaying(false)}
+            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+            onTimeUpdate={(event) => {
+              const time = event.currentTarget.currentTime;
+              setCurrentTime(time);
+              syncPresetAtTime(time);
+            }}
+          />
         </section>
 
         <aside className="inspector">
@@ -196,6 +306,14 @@ export function EditorApp() {
           <label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <label>Artist<input value={artist} onChange={(event) => setArtist(event.target.value)} /></label>
           <label>Accent <input className="color-input" type="color" value={accent} onChange={(event) => setAccent(event.target.value)} /></label>
+
+          <div className="section-heading">Preset cues</div>
+          <button className="secondary-button" type="button" onClick={addPresetMarker}>Add at playhead</button>
+          {selectedMarker ? <div className="marker-editor">
+            <label>Timestamp<input type="number" min="0" max={duration || undefined} step="0.1" value={selectedMarker.time.toFixed(1)} onChange={(event) => updateSelectedMarker({ time: Number(event.target.value) })} /></label>
+            <label>Preset<select value={selectedMarker.presetName} onChange={(event) => updateSelectedMarker({ presetName: event.target.value })}>{presetEntries.slice(0, 80).map(([name]) => <option key={name} value={name}>{name}</option>)}</select></label>
+            <button className="text-button danger" type="button" onClick={removeSelectedMarker}>Remove cue</button>
+          </div> : <p className="profile-detail">Select a cue on the timeline to edit it.</p>}
 
           <div className="section-heading">Output</div>
           <div className="segmented">
@@ -210,6 +328,21 @@ export function EditorApp() {
           </div>
           <p className="profile-detail">{license === "free" ? "Watermark enabled" : "Watermark removed"}</p>
         </aside>
+
+        <section className="timeline" aria-label="Timeline">
+          <div className="timeline-header">
+            <div><strong>Timeline</strong><span>{formatTime(currentTime)} / {formatTime(duration)}</span></div>
+            <button className="secondary-button timeline-add" type="button" onClick={addPresetMarker}>Add preset cue</button>
+          </div>
+          <div className="marker-lane">
+            {presetMarkers.map((marker) => <button key={marker.id} className={`preset-marker ${selectedMarkerId === marker.id ? "selected" : ""}`} type="button" style={{ left: `${duration ? (marker.time / duration) * 100 : 0}%` }} onClick={() => setSelectedMarkerId(marker.id)} title={`${formatTime(marker.time)} - ${marker.presetName}`}><span /></button>)}
+          </div>
+          <div className="waveform-track">
+            <div className="waveform-bars" aria-hidden="true">{(waveform.length ? waveform : Array.from({ length: 180 }, () => 0.06)).map((peak, index) => <i key={index} style={{ height: `${Math.max(5, peak * 100)}%` }} />)}</div>
+            <input className="seek-control" type="range" min="0" max={duration || 0} step="0.01" value={Math.min(currentTime, duration || 0)} onChange={(event) => seek(Number(event.target.value))} aria-label="Seek audio" />
+            <div className="playhead" style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }} />
+          </div>
+        </section>
       </section>
     </main>
   );
