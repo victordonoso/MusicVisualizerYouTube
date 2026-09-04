@@ -110,6 +110,14 @@ Preview requirements:
 - Visualizer reacts to audio
 - Low-quality preview mode for slower machines
 
+### Timeline And Preset Cues
+
+- Display a decoded waveform with a seekable playhead.
+- Allow visualizer preset changes at exact timestamps.
+- Each cue has a user-editable musical-section name, such as `Intro`, `Chorus`, `Drop 1`, or `Outro`.
+- Keep the cue name separate from its MilkDrop preset name; musical structure is the primary timeline label, while the preset remains an implementation detail in the cue inspector.
+- Use compact cue markers as the default timeline representation. Reveal cue labels for selected or hovered markers, and show more labels only when timeline zoom and available spacing prevent collisions.
+
 ### Export
 
 Export presets:
