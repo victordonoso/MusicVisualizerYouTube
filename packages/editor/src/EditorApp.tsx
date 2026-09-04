@@ -74,7 +74,14 @@ export function EditorApp() {
 
   useEffect(() => () => {
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    void audioContextRef.current?.close();
+
+    // Clear refs as well as closing the context. React Strict Mode runs this
+    // cleanup once before remounting effects during development.
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    mediaSourceRef.current = null;
+    visualizerRef.current = null;
+    void context?.close();
   }, []);
 
   async function handleAudioImport(event: ChangeEvent<HTMLInputElement>) {
@@ -104,12 +111,16 @@ export function EditorApp() {
       return;
     }
     if (context?.state === "suspended") await context.resume();
-    if (audio.paused) {
-      await audio.play();
-      setIsPlaying(true);
-    } else {
-      audio.pause();
-      setIsPlaying(false);
+    try {
+      if (audio.paused) {
+        await audio.play();
+        setIsPlaying(true);
+      } else {
+        audio.pause();
+        setIsPlaying(false);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? `Playback failed: ${error.message}` : "Playback failed. Try importing the file again.");
     }
   }
 
