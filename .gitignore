@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+.vite/
+
+# Tauri output
+src-tauri/target/
+apps/desktop/src-tauri/target/
+
+# Generated media
+output/
+exports/
+renders/
+frames/
+*.mp4
+*.mov
+*.webm
+
+# Local media assets
+assets/sample/*
+!assets/sample/.gitkeep
+
+# Environment and local settings
+.env
+.env.*
+!.env.example
+*.local
+local-samples.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
